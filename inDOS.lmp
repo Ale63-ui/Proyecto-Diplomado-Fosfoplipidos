@@ -1,0 +1,100 @@
+# =====================================================================
+# SIMULACIÓN DE AUTO-ENSAMBLAJE: VESÍCULA DPPC + FÁRMACO
+# Emmanuel Alejandro Duran Rosiles
+# =====================================================================
+
+units           lj
+atom_style      full
+boundary        p p p
+
+pair_style      dpd 1.0 1.0 34387
+bond_style      harmonic
+
+# --- 1. CREACIÓN DE LA CAJA Y TIPOS ---
+# Definimos una caja de 50x50x50
+region          box_region block 0 50 0 50 0 50
+create_box      6 box_region &
+                bond/types 1 &
+                extra/bond/per/atom 10
+
+# --- 2. DEFINICIÓN DE MASAS ---
+mass 1 1.0  # W (Agua)
+mass 2 1.0  # Q0 (Cabeza 1)
+mass 3 1.0  # Qa (Cabeza 2)
+mass 4 1.0  # Na (Cabeza 3)
+mass 5 1.0  # C  (Colas)
+mass 6 1.0  # Drug
+
+# --- 3. PARÁMETROS DE INTERACCIÓN (Articulo Ref.) ---
+# Nota: Se usa fricción 15.0 para mayor estabilidad térmica
+bond_coeff      1 128.0 0.5
+
+# Matriz de interacciones (Agua-Todo, Cabeza-Todo, etc.)
+pair_coeff 1 1 100.0  15.0  1.0
+pair_coeff 1 2 98.0   15.0  1.0
+pair_coeff 1 3 98.0   15.0  1.0
+pair_coeff 1 4 102.0  15.0  1.0
+pair_coeff 1 5 130.0  15.0  1.0
+pair_coeff 1 6 130.0  15.0  1.0
+
+pair_coeff 2 2 110.0  15.0  1.0
+pair_coeff 2 3 100.0  15.0  1.0
+pair_coeff 2 4 102.0  15.0  1.0
+pair_coeff 2 5 130.0  15.0  1.0
+pair_coeff 2 6 130.0  15.0  1.0
+
+pair_coeff 3 3 110.0  15.0  1.0
+pair_coeff 3 4 102.0  15.0  1.0
+pair_coeff 3 5 130.0  15.0  1.0
+pair_coeff 3 6 130.0  15.0  1.0
+
+pair_coeff 4 4 100.0  15.0  1.0
+pair_coeff 4 5 110.0  15.0  1.0
+pair_coeff 4 6 130.0  15.0  1.0
+
+pair_coeff 5 5 100.0  15.0  1.0
+pair_coeff 5 6 100.0  15.0  1.0
+
+pair_coeff 6 6 100.0  15.0  1.0
+
+# --- 4. LLENADO ALEATORIO DE LA CAJA ---
+# Creamos primero los componentes del lípido y fármaco dispersos
+create_atoms    2 random 1000 12345 box_region
+create_atoms    3 random 1000 23456 box_region
+create_atoms    4 random 1000 34567 box_region
+create_atoms    5 random 4000 45678 box_region
+create_atoms    6 random 500  56789 box_region
+
+# Llenamos el resto con agua hasta alcanzar densidad ~3
+create_atoms    1 random 110000 67890 box_region
+
+# --- 5. CONFIGURACIÓN DE VECINDADES ---
+neighbor        0.5 bin
+neigh_modify    delay 0 every 1 check yes
+comm_modify     mode multi
+
+# --- 6. DINÁMICA Y TERMOSTATOS ---
+velocity        all create 1.0 45687 loop local dist gaussian
+
+fix             1 all nve
+fix             3 all langevin 1.0 1.0 0.1 89765  # Auxiliar térmico
+fix             2 all nve/limit 0.01             # Evita explosiones iniciales
+
+# --- 7. SALIDA DE DATOS ---
+thermo          100
+thermo_style    custom step temp press pe density
+dump            1 all custom 10000 autoensamblaje.lammpstrj id type x y z
+
+# --- 8. RELAJACIÓN ---
+# Fase A: Suavizado de traslapes
+timestep 0.0001
+run 20000
+
+# Fase B: Transición
+timestep 0.001
+run 50000
+unfix 2  # Quitamos el límite de movimiento
+
+# --- 9. PRODUCCIÓN (Formación de la Vesícula) ---
+timestep        0.002
+run             3000000
